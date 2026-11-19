@@ -31,7 +31,7 @@ from core.paths import app_root
 #: the reason and never activated half-working. Raised by one each time the
 #: contract grows (docs/plugins.md says what every level added); a level is
 #: never taken back, so a plugin for an older level keeps working.
-API_VERSION = 2
+API_VERSION = 3
 
 
 # -- what a plugin declares ----------------------------------------------------
@@ -122,6 +122,27 @@ class Row:
         self.apply_each = apply_each   # (entity, value) -> None
 
 
+@dataclass(frozen=True)
+class AiTool:
+    """A tool the assistant may call, in IngeCAD and through MCP
+    (``PluginSpec.ai_tools``, level 3). ``name`` starts with the plugin's id
+    and an underscore; ``properties`` and ``required`` are the JSON Schema
+    of its arguments; ``handler(ctx, **args)`` returns a dict (or raises
+    ``core.ai.tools.ToolError`` with the reason). A tool that changes the
+    drawing sets ``mutates``: its call is refused when the drawing changed
+    since the model read it, and runs in the assistant's one undo step.
+    ``confirm_text(ctx, args)`` returns the question to ask the user before
+    something U cannot take back, or None."""
+
+    name: str
+    description: str
+    handler: Callable
+    properties: dict = field(default_factory=dict)
+    required: tuple = ()
+    mutates: bool = False
+    confirm_text: Optional[Callable] = None
+
+
 @dataclass
 class PluginSpec:
     """Everything the host needs to know about a plugin.
@@ -136,7 +157,9 @@ class PluginSpec:
     a missing one lists the plugin as unavailable with the reason instead of
     breaking the start-up. ``api_version`` is the contract level the plugin
     was written for (:data:`API_VERSION`); a level this IngeCAD does not
-    reach lists it as unavailable the same way.
+    reach lists it as unavailable the same way. ``ai_tools`` are
+    :class:`AiTool` the assistant may call, in IngeCAD and through MCP
+    (level 3).
     """
 
     id: str
@@ -164,6 +187,7 @@ class PluginSpec:
     toolbars: tuple = ()
     on_paste: Optional[Callable] = None
     on_copy: Optional[Callable] = None
+    ai_tools: tuple = ()
 
 
 @dataclass
@@ -331,6 +355,7 @@ class _Activation:
     toolbar: bool = False
     grip_types: list[str] = field(default_factory=list)
     reactors: bool = False
+    ai_tools: bool = False
 
 
 # -- where plugins live --------------------------------------------------------
@@ -627,6 +652,11 @@ class PluginManager:
                 for reactor in spec.reactors:
                     core_commands.register_reactor(reactor, spec.id)
                 record.reactors = True
+            if spec.ai_tools:
+                from core.ai import tools as ai_tools
+
+                ai_tools.register_plugin_tools(spec.id, spec.ai_tools)
+                record.ai_tools = True
             if spec.grip_handlers:
                 from core import select
 
@@ -662,6 +692,10 @@ class PluginManager:
             from core import commands as core_commands
 
             core_commands.unregister_reactors(plugin_id)
+        if record.ai_tools:
+            from core.ai import tools as ai_tools
+
+            ai_tools.unregister_plugin_tools(plugin_id)
         if record.grip_types:
             from core import select
 
