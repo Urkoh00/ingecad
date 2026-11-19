@@ -148,6 +148,7 @@ with `i18n/es/ui.json` (`{"Say hello": "Saludar", ...}`) and, optionally,
 | `toolbars` | `(ToolbarSpec(id, title, items), ...)`: more bars beside `toolbar`, on and off with it (level 2) |
 | `on_paste` | `callable(ctx, mime) -> bool`: a paste (Ctrl+V, PASTECLIP) asks it first with the clipboard's `QMimeData`; True means the plugin placed it (level 2) |
 | `on_copy` | `callable(ctx, entities, mime)`: a copy going to the system clipboard; add formats of your own to `mime` (level 2) |
+| `bar_controls` | `(BarControl(id, create, refresh, where), ...)`: controls of its own beside the current layer or on the status bar (level 3, below) |
 | `reactors` | objects with `before(document)` and `react(document, state)`: keep derived objects true after any command, in its undo step (level 2, below) |
 
 ### A tool's own overlay and preview (level 2)
@@ -295,6 +296,45 @@ only that bar, and it is remembered. Each button's QAction carries the
 on screen, or None while the bars are off. Never reach the window's own
 attributes for them.
 
+### Controls beside the current layer (`bar_controls`, level 3)
+
+A state that qualifies the current layer -- the current level of a
+building, the zone of a survey -- belongs beside it, not on a toolbar of
+the plugin's own across the window. A `BarControl` puts a widget there,
+or on the status bar:
+
+```python
+from PySide6.QtWidgets import QComboBox
+from core.plugins import BarControl
+
+def make_level_combo(ctx):
+    combo = QComboBox()
+    combo.activated.connect(lambda i: ctx.run_command("LEVEL", combo.itemText(i)))
+    return combo
+
+def show_levels(ctx, combo):
+    combo.clear()
+    combo.addItems(levels_of(ctx.document))     # read from the drawing
+
+PLUGIN = PluginSpec(id="arquitectura", name="...", api_version=3, bar_controls=(
+    BarControl("level", make_level_combo, show_levels),             # beside the layer
+    BarControl("units", make_units_label, show_units, where="status"),
+))
+```
+
+- `create(ctx)` runs once, on activation; the host owns the widget and
+  deletes it on deactivation, leaving the bars as they were.
+- `refresh(ctx, widget)` runs with every refresh of the Properties bar: a
+  drawing opened or switched to, the selection or the layers changed, the
+  language changed. Read the state from the drawing there; keep none of
+  your own. A refresh that raises is logged and the bar goes on.
+- Controls beside the layer line up after the current-layer combo, in the
+  order plugins were activated. `ctx.bar_control(plugin_id, id)` returns a
+  widget.
+- A control that cannot be made, a `where` other than `"layer"` or
+  `"status"`, or a repeated `id` keeps the plugin from activating, with
+  nothing left behind.
+
 ### What the context answers (level 2)
 
 A plugin never reads the window's private attributes: they change from one
@@ -311,6 +351,7 @@ release to the next. It asks the `PluginContext` instead.
 | `ctx.regen()` | REGEN in the background; `on_regen_done` hears when it is in view |
 | `with ctx.transaction(name):` | the commands executed inside are one undo step called `name`; if the block raises, they are undone and the error goes on |
 | `ctx.mark()` / `ctx.fold_since(mark, name)` / `ctx.undo_to(mark)` | the same by hand: where the history stands, fold what came after into one step, or take it all back with nothing left to redo |
+| `ctx.bar_control(plugin_id, id)` | a plugin's control beside the current layer or on the status bar, or None (level 3) |
 
 ## Contract levels (`api_version`)
 
@@ -325,6 +366,7 @@ written for level 1 keeps working on every later IngeCAD.
 |---|---|---|
 | 1 | 0.5 | the fields above up to `on_document_open`; `ctx.document`, `execute`, `start_tool`, `echo` |
 | 2 | 0.8 | `api_version`, `on_regen_done`, `on_selection_changed`, `grip_handlers`, `input_filters`, `on_before`, `on_double_click`, `reactors`, `properties_sections` with `Row`, `toolbars` with `ToolbarSpec`, `on_paste`, `on_copy`, `ToolbarItem.key`, the tool's `overlay`, `preview_entities`, `on_key`, `extra_osnaps`, `extra_osnaps_always`, `last_segment_direction`, `on_selection_step` and `suppress_selection_highlight`, and the context's `toolbar`, `run_command`, `active_layout`, `selection`, `select`, `pick_tolerance`, `redraw`, `regen`, `transaction`, `mark`, `fold_since`, `undo_to` |
+| 3 | next | `bar_controls` with `BarControl`, and the context's `bar_control` |
 
 ## The rules a plugin lives by
 
