@@ -282,12 +282,19 @@ class PropertiesPanel(QWidget):
         self.window.regen_in_memory()
         self.refresh()
 
-    def _set_prop(self, prop: str, value) -> None:
+    def _set_prop(self, prop: str, value, regen: bool = False) -> None:
         ents = self._active()
         if ents:
             # via the tool controller: surgical hide + overlay = instant look
             self.window.tools._execute(
                 actions.SetPropertyCommand(ents, prop, value))
+            if regen:
+                # A width change alters the drawn fill, which the overlay
+                # cannot repaint -- it draws the polyline by its axis. Force
+                # the regen that rebuilds the band, and tie it to this edit's
+                # undo/redo, the way _in_place(regen=True) does for pixels.
+                self.window.history._undo[-1].needs_regen = True
+                self.window.regen_in_memory()
 
     def _in_place(self, mutate, regen: bool = False) -> None:
         ents = self._active()
@@ -467,7 +474,7 @@ def _lwpolyline_rows(panel, e):
         Row(tr("Closed"), "combo", lambda e: 1 if e.closed else 0,
             set_closed, [(tr("No"), 0), (tr("Yes"), 1)]),
         Row(tr("Global width"), "num", lambda e: e.dxf.get("const_width", 0.0),
-            lambda v: panel._set_prop("const_width", v)),
+            lambda v: panel._set_prop("const_width", v, regen=True)),
         Row(tr("Elevation"), "num", lambda e: e.dxf.get("elevation", 0.0),
             lambda v: panel._set_prop("elevation", v)),
         Row(tr("Vertices"), "ro", lambda e: len(e)),

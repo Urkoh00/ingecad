@@ -1553,6 +1553,14 @@ class PolylineEditCommand(Command):
     """One PEDIT operation, with snapshot undo."""
 
     name = "PEDIT"
+    # Every PEDIT operation changes what the polyline draws, not just where
+    # its axis runs: Width paints a filled band, Close/Open add or drop the
+    # closing fill, Reverse flips a tapered segment's wide end. The surgical
+    # overlay repaints a polyline by its axis segments only, so without a
+    # full regen a new width stays invisible until the next deferred regen
+    # (toggling closed, a zoom) reveals it all at once -- the "the width did
+    # not show, then a huge fill appeared" report.
+    needs_regen = True
 
     def __init__(self, entity, operation: str, value=None) -> None:
         self.entity = entity
